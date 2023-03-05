@@ -1,0 +1,14 @@
+[package]
+name = "workers"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies.amiquip]
+version = "0.4.2"
+default-features = false
+
+[[bin]]
+name = "publisher"
+
+[[bin]]
+name = "consumer"

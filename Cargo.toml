@@ -1,0 +1,10 @@
+[workspace]
+members = [
+    "hello_message",
+    "workers",
+    "full_workers",
+    "fanout_logs",
+    "severity_logs",
+    "topics",
+    "rpc_fib",
+]
