@@ -24,8 +24,6 @@ use std::{
 
 struct FibonacciServerRPC<'a> {
     exchange: Exchange<'a>,
-    connection: Connection,
-    channel: Channel,
     queue: Queue<'a>,
 }
 
@@ -42,10 +40,7 @@ fn fibonacci(num: i64) -> i64 {
 }
 
 impl<'a> FibonacciServerRPC<'a> {
-    fn new(uri: &str, exchange: &str) -> Result<FibonacciServerRPC<'a>, Error> {
-        let mut connection = Connection::insecure_open(uri)?;
-        let channel = connection.open_channel(None)?;
-
+    fn new(channel: &'a Channel, exchange: &str, route_key: &str) -> Result<FibonacciServerRPC<'a>, Error> {
         let exchange = channel.exchange_declare(ExchangeType::Direct, exchange, ExchangeDeclareOptions::default())?;
 
         let options = QueueDeclareOptions{
@@ -57,15 +52,13 @@ impl<'a> FibonacciServerRPC<'a> {
 
         let queue = channel.queue_declare("", options)?;
 
-        channel.queue_bind(queue.name(), exchange.name(), "", FieldTable::new())?;
+        channel.queue_bind(queue.name(), exchange.name(), route_key, FieldTable::new())?;
 
         let exchange = Exchange::direct(&channel);
 
         Ok(
                 Self {
                     exchange,
-                    connection,
-                    channel,
                     queue,
                 }
         )
@@ -98,14 +91,14 @@ impl<'a> FibonacciServerRPC<'a> {
             Err(_) => return Ok(()),
         };
 
-        let props = delivery.properties;
+        let props = &delivery.properties;
         let reply_to = match props.reply_to() {
-            Some(reply_to) => reply_to.to_string(),
+            Some(reply_to) => reply_to.clone(),
             None => return Ok(()),
         };
 
         let correlation_id = match props.correlation_id() {
-            Some(correlation_id) => correlation_id.to_string(),
+            Some(correlation_id) => correlation_id.clone(),
             None => return Ok(()),
         };
 
@@ -114,6 +107,8 @@ impl<'a> FibonacciServerRPC<'a> {
 
         let fib = fibonacci(recv_numb).to_string();
 
+        consumer.ack(delivery)?;
+
         self.exchange.publish(Publish::with_properties(fib.as_bytes(), reply_to, props))
     }
 }
@@ -121,17 +116,21 @@ impl<'a> FibonacciServerRPC<'a> {
 fn main() -> Result<(), Error> {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() != 2 {
+    if args.len() != 3 {
         let program = &args[0];
 
         eprintln!("Uncorrect args");
-        eprintln!("\tUsage: {program} exchange");
+        eprintln!("\tUsage: {program} exchange route_key");
 
         process::exit(1);
     }
 
     let exchange = &args[1];
+    let route_key = &args[2];
 
-    let server = FibonacciServerRPC::new("amqp://localhost:5672/", &exchange)?;
+    let mut connection = Connection::insecure_open("amqp://localhost:5672/")?;
+    let channel = connection.open_channel(None)?;
+
+    let server = FibonacciServerRPC::new(&channel, &exchange, &route_key)?;
     server.start_consume()
 }
